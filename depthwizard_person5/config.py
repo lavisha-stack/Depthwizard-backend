@@ -24,11 +24,15 @@ MODEL_MAX_SIZE = int(os.getenv("MODEL_MAX_SIZE", "3072"))
 VIEWER_GRID_SIZE = int(os.getenv("VIEWER_GRID_SIZE", "512"))
 DEPTH_MODEL = os.getenv("DEPTH_MODEL", "depth_anything_v2_base").strip()
 
+# Keep local development origins, and allow the deployed Vercel frontend.
+# Additional origins can still be supplied through CORS_ORIGINS.
+_default_cors_origins = (
+    "http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,"
+    "http://127.0.0.1:5173,https://depthwizard-frontend.vercel.app"
+)
 CORS_ORIGINS = [
     item.strip()
-    for item in os.getenv(
-        "CORS_ORIGINS", "http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:5173"
-    ).split(",")
+    for item in os.getenv("CORS_ORIGINS", _default_cors_origins).split(",")
     if item.strip()
 ]
 
