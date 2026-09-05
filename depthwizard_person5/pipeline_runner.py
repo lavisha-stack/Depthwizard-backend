@@ -20,13 +20,7 @@ from srtm_auto import ensure_srtm_reference
 
 logger = logging.getLogger("depthwizard")
 
-STAGE_LABELS = {
-    "person1": "Person 1 preprocessing",
-    "person2": "Person 2 depth estimation",
-    "person3": "Person 3 elevation calibration",
-    "person6_heightmap": "3D heightmap conversion",
-    "srtm": "SRTM reference acquisition",
-}
+STAGE_LABELS = {"person1": "Person 1 preprocessing", "person2": "Person 2 depth estimation", "person3": "Person 3 elevation calibration", "person6_heightmap": "3D heightmap conversion", "srtm": "SRTM reference acquisition"}
 
 
 @dataclass
@@ -115,20 +109,17 @@ def run_person2(person1_dir: Path, output_dir: Path) -> None:
     _require_outputs("person2", (output_dir / config.PERSON2_DEPTH_FILENAME, output_dir / "relative_depth_preview.png", output_dir / "heightmap.json"))
 
 
-def _calibration_source(input_path: Path, person1_dir: Path, job_dir: Path, srtm_path: Path | None, gcp_path: Path | None) -> tuple[Path | None, Path | None, dict]:
-    """Choose calibration without silently downgrading a georeferenced image."""
+def _calibration_source(input_path: Path, person1_dir: Path, srtm_path: Path | None, gcp_path: Path | None) -> tuple[Path | None, Path | None, dict]:
     metadata = _read_json_object(person1_dir / "metadata.json")
     georeferenced = metadata.get("is_georeferenced") is True
     configured_srtm = srtm_path or (Path(config.PERSON3_SRTM) if config.PERSON3_SRTM else None)
     configured_gcp = gcp_path or (Path(config.PERSON3_GCPS) if config.PERSON3_GCPS else None)
-
     if not georeferenced:
         return None, configured_gcp, metadata
     if configured_srtm or configured_gcp:
         return configured_srtm, configured_gcp, metadata
-
     try:
-        cache_dir = job_dir / "srtm_cache"
+        cache_dir = Path(config.RUNTIME_DIR) / "srtm_cache"
         automatic_srtm = ensure_srtm_reference(input_path, metadata, cache_dir)
         logger.info("[SRTM] Automatic reference ready: %s", automatic_srtm)
         return automatic_srtm, None, metadata
@@ -136,10 +127,8 @@ def _calibration_source(input_path: Path, person1_dir: Path, job_dir: Path, srtm
         raise PipelineStageError("srtm", "This image is georeferenced, so an absolute DSM requires SRTM/GCP calibration. Automatic SRTM acquisition failed: " + str(exc)) from exc
 
 
-def run_person3(input_path: Path, person1_dir: Path, person2_dir: Path, output_dir: Path, job_dir: Path, srtm_path: Path | None = None, gcp_path: Path | None = None) -> None:
-    source_srtm, source_gcp, source_metadata = _calibration_source(input_path, person1_dir, job_dir, srtm_path, gcp_path)
-
-    # Path A: non-georeferenced imagery stays a relative rDSM.
+def run_person3(input_path: Path, person1_dir: Path, person2_dir: Path, output_dir: Path, srtm_path: Path | None = None, gcp_path: Path | None = None) -> None:
+    source_srtm, source_gcp, source_metadata = _calibration_source(input_path, person1_dir, srtm_path, gcp_path)
     if source_metadata.get("is_georeferenced") is not True:
         depth = person2_dir / config.PERSON2_DEPTH_FILENAME
         preview = person2_dir / "relative_depth_preview.png"
@@ -152,27 +141,7 @@ def run_person3(input_path: Path, person1_dir: Path, person2_dir: Path, output_d
         if preview.is_file():
             shutil.copy2(preview, output_dir / "dsm_preview.png")
         heightmap_metadata = _read_json_object(heightmap)
-        report = {
-            "calibration_method": "relative_depth_fallback",
-            "calibration_source": "Not applicable — input is not georeferenced",
-            "elevation_units": "relative",
-            "is_absolute_elevation": False,
-            "minimum_elevation": heightmap_metadata.get("elevation_min"),
-            "maximum_elevation": heightmap_metadata.get("elevation_max"),
-            "path": "A",
-            "warning": "No absolute elevation is possible without trustworthy georeferencing.",
-            "target": {
-                "crs": source_metadata.get("crs"),
-                "width": source_metadata.get("width"),
-                "height": source_metadata.get("height"),
-                "source_width": source_metadata.get("width"),
-                "source_height": source_metadata.get("height"),
-                "transform": source_metadata.get("transform"),
-                "horizontal_units": source_metadata.get("horizontal_units"),
-                "horizontal_unit_to_metre": source_metadata.get("horizontal_unit_to_metre"),
-                "pixel_resolution": [source_metadata.get("pixel_size_x"), source_metadata.get("pixel_size_y")],
-            },
-        }
+        report = {"calibration_method": "relative_depth_fallback", "calibration_source": "Not applicable — input is not georeferenced", "elevation_units": "relative", "is_absolute_elevation": False, "minimum_elevation": heightmap_metadata.get("elevation_min"), "maximum_elevation": heightmap_metadata.get("elevation_max"), "path": "A", "warning": "No absolute elevation is possible without trustworthy georeferencing.", "target": {"crs": source_metadata.get("crs"), "width": source_metadata.get("width"), "height": source_metadata.get("height"), "source_width": source_metadata.get("width"), "source_height": source_metadata.get("height"), "transform": source_metadata.get("transform"), "horizontal_units": source_metadata.get("horizontal_units"), "horizontal_unit_to_metre": source_metadata.get("horizontal_unit_to_metre"), "pixel_resolution": [source_metadata.get("pixel_size_x"), source_metadata.get("pixel_size_y")]}}
         (output_dir / "calibration_report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
         logger.info("[Person3] Path A relative rDSM emitted")
         return
@@ -253,7 +222,7 @@ def run_pipeline(input_path: Path, job_dir: Path, job_id: str, srtm_path: Path |
             update_status(job_dir, status="depth_estimation", progress=45)
             run_person2(job_dir / "person1", job_dir / "person2")
             update_status(job_dir, status="calibration", progress=75)
-            run_person3(input_path, job_dir / "person1", job_dir / "person2", job_dir / "person3", job_dir, srtm_path, gcp_path)
+            run_person3(input_path, job_dir / "person1", job_dir / "person2", job_dir / "person3", srtm_path, gcp_path)
         update_status(job_dir, status="completed", progress=100)
         logger.info("[DepthWizard] Job %s completed successfully", job_id)
     except PipelineStageError as exc:
