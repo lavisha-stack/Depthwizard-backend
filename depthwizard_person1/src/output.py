@@ -26,13 +26,20 @@ def write_outputs(
     preview_max_size: tuple[int, int],
     save_original_array: bool = True,
 ) -> None:
-    """Write arrays, model PNG, metadata, and a lightweight preview."""
+    """Write arrays plus browser-safe RGB assets and metadata."""
     output_dir.mkdir(parents=True, exist_ok=True)
+
     if save_original_array:
         np.save(output_dir / "rgb_original.npy", original_rgb, allow_pickle=False)
     np.save(output_dir / "valid_mask.npy", valid_mask.astype(bool), allow_pickle=False)
 
-    model_image = Image.fromarray(model_rgb, mode="RGB")
+    # Keep the actual optical RGB values for the final 3D texture. The model
+    # image is intentionally contrast-normalized for depth inference and must
+    # not be used as the judge-facing RGB drape.
+    original_image = Image.fromarray(original_rgb.astype(np.uint8), mode="RGB")
+    original_image.save(output_dir / "rgb_texture.png", optimize=True)
+
+    model_image = Image.fromarray(model_rgb.astype(np.uint8), mode="RGB")
     model_image.save(output_dir / "rgb_model.png")
 
     preview = model_image.copy()
