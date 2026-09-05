@@ -1,0 +1,10 @@
+export function createToolbar(host,{onMode,onExaggeration,onMoveSpeed,onSensitivity,onOverview,onFirstPerson,onFly,onPause,onResume,onReset},{initialExaggeration=1,maxExaggeration=5}={}) {
+  const bar=document.createElement('div'); bar.className='dw-toolbar'; bar.innerHTML=`<strong>DepthWizard</strong><select aria-label="Terrain mode"><option value="texture">Texture</option><option value="elevation">Elevation</option><option value="wireframe">Wireframe</option></select><label>Relief <input data-control="relief" aria-label="Vertical exaggeration" type="range" min="0.2" max="${maxExaggeration}" step="0.1" value="${initialExaggeration}"><output>${initialExaggeration}×</output></label><label>Speed <input data-control="speed" aria-label="Movement speed" type="range" min="0.25" max="3" step="0.25" value="1"><output>1×</output></label><label>Look <input data-control="look" aria-label="Mouse sensitivity" type="range" min="0.25" max="2" step="0.25" value="1"><output>1×</output></label><button data-action="overview">Overview</button><button data-action="walk">Fly</button><button data-action="auto">Auto</button><button data-action="pause">Pause</button><button data-action="resume">Resume</button><button data-action="reset">Reset</button>`;
+  host.append(bar); const range=bar.querySelector('[data-control="relief"]'),output=range.nextElementSibling;
+  bar.querySelector('select').addEventListener('change',e=>onMode(e.target.value));
+  range.addEventListener('input',e=>{output.value=`${e.target.value}×`;onExaggeration(Number(e.target.value))});
+  for(const [name,callback] of [['speed',onMoveSpeed],['look',onSensitivity]]) { const input=bar.querySelector(`[data-control="${name}"]`),label=input.nextElementSibling;input.addEventListener('input',e=>{label.value=`${e.target.value}×`;callback?.(Number(e.target.value))}); }
+  const actions={overview:onOverview,walk:onFirstPerson,auto:onFly,pause:onPause,resume:onResume,reset:onReset};
+  bar.querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>actions[b.dataset.action]?.()));
+  return {element:bar,setExaggeration(v){range.value=v;output.value=`${v}×`}};
+}

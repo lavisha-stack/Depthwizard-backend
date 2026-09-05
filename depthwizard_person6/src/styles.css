@@ -1,0 +1,42 @@
+:root { font-family: Inter, ui-sans-serif, system-ui; color: #eaf6ff; background: #050b11; }
+* { box-sizing: border-box; }
+
+/* Contain the viewer without locking the host website's page scrolling. */
+.dw-viewer, #terrain-viewer { width: 100%; height: 100%; overflow: hidden; }
+.dw-viewer { position: relative; min-height: 420px; background: radial-gradient(circle at 50% 30%, #17364a, #050b11); }
+.dw-viewer canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+.dw-toolbar { position: absolute; z-index: 2; top: 16px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 7px; max-width: calc(100% - 24px); padding: 9px 10px; border: 1px solid #ffffff26; border-radius: 14px; background: #07131ee8; box-shadow: 0 12px 35px #0008; backdrop-filter: blur(12px); white-space: nowrap; }
+.dw-toolbar strong { margin-right: 6px; color: #7dd3fc; }
+.dw-toolbar button, .dw-toolbar select { color: #eaf6ff; background: #173447; border: 1px solid #ffffff24; border-radius: 8px; padding: 7px 9px; cursor: pointer; }
+.dw-toolbar button:hover { background: #24506a; }
+.dw-toolbar label { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+.dw-toolbar input { width: 72px; accent-color: #38bdf8; }
+.dw-toolbar output { width: 34px; }
+.dw-status { position: absolute; z-index: 3; inset: 50% auto auto 50%; transform: translate(-50%, -50%); padding: 14px 18px; border-radius: 12px; background: #07131edb; }
+.dw-status.error { color: #fecaca; border: 1px solid #ef4444; }
+.dw-elevation { position: absolute; z-index: 2; top: 72px; right: 16px; display: grid; gap: 6px; min-width: 260px; max-width: 360px; padding: 11px 13px; border: 1px solid #ffffff26; border-radius: 10px; background: #07131ee8; box-shadow: 0 10px 28px #0006; font: 11px/1.35 "DM Mono", monospace; color: #8faeaa; pointer-events: none; }
+.dw-elevation > strong { padding-bottom: 4px; border-bottom: 1px solid #ffffff1c; color: #7dd3fc; font-size: 10px; letter-spacing: .1em; }
+.dw-elevation span { display: flex; justify-content: space-between; gap: 14px; }
+.dw-elevation b { color: #c8f36b; font-weight: 500; text-align: right; }
+.dw-help { position: absolute; z-index: 2; left: 16px; bottom: 14px; display: flex; flex-direction: column; gap: 3px; padding: 9px 12px; border: 1px solid #ffffff1c; border-radius: 7px; background: #07131ec7; color: #91aaa5; font: 11px/1.35 "DM Mono", monospace; pointer-events: none; }
+.dw-help b { color: #53e8c4; font-size: 10px; letter-spacing: .12em; }
+.dw-crosshair { position: absolute; z-index: 2; inset: 50% auto auto 50%; transform: translate(-50%, -50%); color: #d9ff7a; font: 22px/1 monospace; text-shadow: 0 0 3px #000, 0 0 8px #000; pointer-events: none; }
+.dw-renderer-badge { position:absolute;z-index:2;right:12px;bottom:10px;max-width:46%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:5px 8px;border:1px solid #ffffff1c;border-radius:6px;background:#07131ec7;color:#78a59c;font:9px/1.2 "DM Mono",monospace;letter-spacing:.06em;pointer-events:none; }
+.dw-renderer-badge.warning { color:#ffd27a;border-color:#ffd27a45; }
+
+@media (max-width: 760px) {
+  .dw-toolbar { top: 8px; left: 8px; right: 8px; transform: none; flex-wrap: wrap; }
+  .dw-toolbar strong { width: 100%; }
+  .dw-toolbar input { width: 70px; }
+  .dw-elevation { top: auto; right: 8px; bottom: 8px; }
+  .dw-help { display: none; }
+  .dw-renderer-badge { display:none; }
+}
+
+@media (max-width: 1120px) and (min-width: 761px) {
+  .dw-toolbar { left: 12px; right: 12px; transform: none; flex-wrap: wrap; justify-content: center; }
+  .dw-toolbar strong { display: none; }
+  .dw-toolbar input { width: 64px; }
+  .dw-toolbar button, .dw-toolbar select { padding-inline: 7px; }
+  .dw-elevation { top: 112px; }
+}

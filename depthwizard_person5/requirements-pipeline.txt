@@ -1,0 +1,5 @@
+# Install these into the SAME environment as the FastAPI backend.
+# The orchestrator uses sys.executable for Persons 1-3.
+-r ../depthwizard_person1/requirements.txt
+-r ../depthwizard_person2/requirements.txt
+-r ../depthwizard_person3/requirements.txt
