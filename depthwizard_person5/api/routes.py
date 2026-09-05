@@ -26,20 +26,11 @@ router = APIRouter(prefix="/api")
 logger = logging.getLogger("depthwizard")
 
 
-def _run_pipeline_background(
-    input_path: Path,
-    job_dir: Path,
-    job_id: str,
-    srtm_path: Path | None,
-    gcp_path: Path | None,
-) -> None:
+def _run_pipeline_background(input_path: Path, job_dir: Path, job_id: str, srtm_path: Path | None, gcp_path: Path | None) -> None:
     """Run a job after the upload response; run_pipeline persists all failures."""
     try:
         run_pipeline(input_path, job_dir, job_id, srtm_path, gcp_path)
     except PipelineStageError:
-        # The job's status.json already contains the safe message and private
-        # stdout/stderr. Avoid turning a handled pipeline failure into an
-        # unhandled ASGI background-task exception.
         logger.info("[DepthWizard] Job %s ended with a recorded pipeline failure", job_id)
 
 
@@ -96,14 +87,7 @@ async def process_image(
         srtm_path = await save_support_file(srtm, job_dir, "srtm", {".tif", ".tiff", ".hgt"}) if srtm else None
         gcp_path = await save_support_file(gcp, job_dir, "gcps", {".csv", ".json"}) if gcp else None
         update_status(job_dir, status="queued", progress=5)
-        background_tasks.add_task(
-            _run_pipeline_background,
-            input_path,
-            job_dir,
-            job_id,
-            srtm_path,
-            gcp_path,
-        )
+        background_tasks.add_task(_run_pipeline_background, input_path, job_dir, job_id, srtm_path, gcp_path)
     except UploadTooLargeError as exc:
         update_status(job_dir, status="failed", progress=0, stage="upload", message=str(exc))
         raise HTTPException(status_code=413, detail=str(exc)) from exc
@@ -125,18 +109,22 @@ def build_results(request: Request, job_id: str, job_dir: Path) -> dict[str, Any
     status = read_status(job_dir)
     if status.get("status") != "completed":
         raise HTTPException(status_code=409, detail="Results are not available because the job is not complete.")
+
     depth_preview = _find(job_dir, ("relative_depth_preview.png", "relative_depth_preview.jpg", "relative_depth_preview.jpeg", "relative_depth_preview.tif", "relative_depth_preview.tiff"), ("relative_depth_preview",))
     dsm_preview = _find(job_dir, ("dsm_preview.png", "preview_dsm.png", "dsm_preview.jpg", "dsm_preview.jpeg", "dsm_preview.tif", "dsm_preview.tiff"), ("dsm_preview", "preview_dsm"))
     dsm = _find(job_dir, ("absolute_dsm.tif", "absolute_dsm.tiff", "fused_dsm.tif", "fused_dsm.tiff", "absolute_dsm.npy", "fused_dsm.npy"))
-    # The Three.js client consumes the browser-safe JSON contract. Raw NPY/TIFF
-    # arrays remain available through dsm_download_url, but must never be sent
-    # as heightmap_url because response.json() cannot decode those formats.
     heightmap = _find(job_dir, ("heightmap.json",))
-    # Person 1 bounds rgb_model.png to the configured model grid (normally no
-    # more than 3072 px), which is comfortably within modern WebGL limits and
-    # retains much more oblique-view detail than the small UI preview.
-    texture = _find(job_dir, ("rgb_model.png", "rgb_model.jpg", "rgb_model.jpeg", "preview.png", "rgb_model.tif", "rgb_model.tiff"), ("rgb_model",))
+
+    # rgb_texture.png is the untouched optical RGB converted to a browser-safe
+    # PNG. It is intentionally preferred over rgb_model.png, whose contrast
+    # normalization is useful for AI inference but not for judge-facing RGB.
+    texture = _find(
+        job_dir,
+        ("rgb_texture.png", "rgb_model.png", "rgb_model.jpg", "rgb_model.jpeg", "preview.png"),
+        ("rgb_texture", "rgb_model"),
+    )
     metadata_file = _find(job_dir, ("metadata.json", "calibration_report.json"))
+
     result: dict[str, Any] = {"job_id": job_id, "status": "completed"}
     result.update(_load_metadata(job_dir))
     result.update({
