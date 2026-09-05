@@ -8,16 +8,8 @@ from PIL import Image, ImageFilter
 
 
 def _depth_preview(depth: np.ndarray) -> np.ndarray:
-    """Create a robust grayscale preview; invalid pixels remain black.
-
-    A raw min/max stretch lets a handful of extreme pixels flatten the visible
-    contrast, which is especially common in large scenes. The numerical depth
-    array remains untouched; only this display preview uses percentile limits.
-    """
+    """Create a robust grayscale preview; invalid pixels remain black."""
     preview = np.zeros(depth.shape, dtype=np.uint8)
-    # Estimate display limits from a bounded deterministic sample. The full
-    # float32 depth can exceed a gigabyte even though the uploaded TIFF is much
-    # smaller, so copying every finite value just for a preview is unsafe.
     stride = max(1, int(np.ceil(np.sqrt(depth.size / 2_000_000))))
     sample = depth[::stride, ::stride]
     sample_values = sample[np.isfinite(sample)]
@@ -36,9 +28,6 @@ def _depth_preview(depth: np.ndarray) -> np.ndarray:
             preview_block = preview[start : start + 1024]
             preview_block[finite] = np.round(scaled[finite] * 255.0).astype(np.uint8)
             histogram += np.bincount(preview_block[finite], minlength=256)
-        # Blend a modest histogram equalization into the linear percentile
-        # stretch. This makes subtle roof/canopy structure readable without
-        # replacing the numerical depth values used by calibration and 3D.
         cumulative = np.cumsum(histogram)
         occupied = np.flatnonzero(histogram)
         if occupied.size and cumulative[-1] > histogram[occupied[0]]:
@@ -50,10 +39,6 @@ def _depth_preview(depth: np.ndarray) -> np.ndarray:
                 finite = np.isfinite(block)
                 preview_block = preview[start : start + 1024]
                 preview_block[finite] = lut[preview_block[finite]]
-        # Aerial relative-depth predictions often carry a broad brightness
-        # slope that hides roofs and tree crowns in a global grayscale stretch.
-        # Blend in a locally detrended display layer. This changes only the PNG
-        # preview; relative_depth.npy and the 3D height samples stay untouched.
         if min(depth.shape) >= 128:
             radius = max(4.0, min(depth.shape) / 96.0)
             blurred = np.asarray(
@@ -72,40 +57,92 @@ def _depth_preview(depth: np.ndarray) -> np.ndarray:
     return preview
 
 
-def _heightmap_payload(depth: np.ndarray, max_size: int = 512) -> dict:
-    """Create a browser-friendly, bounded JSON grid for the 3D viewer."""
+def _robust_relative_height(depth: np.ndarray, larger_value_means: str = "closer") -> np.ndarray:
+    """Convert monocular inverse-depth into a stable viewer height field.
+
+    Depth Anything V2 produces relative inverse depth: larger values represent
+    nearer surfaces. That is the opposite of a terrain height field. Feeding
+    the raw prediction directly to Three.js therefore makes nearby roofs and
+    walls rise in the wrong direction and exaggerates the scene.
+
+    This conversion is intentionally applied only to the browser heightmap;
+    the original relative_depth.npy remains untouched for later calibration.
+    We also use percentile clipping so a few extreme predictions cannot set
+    the entire viewer's vertical scale.
+    """
+    values = np.asarray(depth, dtype=np.float32)
+    finite = np.isfinite(values)
+    if not finite.any():
+        raise ValueError("Cannot create a height field without finite depth samples.")
+
+    valid_values = values[finite]
+    low, high = np.percentile(valid_values, (2.0, 98.0))
+    if not np.isfinite(low) or not np.isfinite(high) or high <= low:
+        low = float(valid_values.min())
+        high = float(valid_values.max())
+    if high <= low:
+        return np.zeros_like(values, dtype=np.float32)
+
+    clipped = np.clip(values, low, high)
+    normalized = (clipped - low) / (high - low)
+    if larger_value_means.strip().lower() == "closer":
+        normalized = 1.0 - normalized
+
+    # A very light blur suppresses single-pixel depth spikes that become
+    # unnatural needles/walls after vertical displacement, while preserving
+    # buildings, ridges and other structures at terrain-viewer resolution.
+    if min(values.shape) >= 64:
+        smoothed = np.asarray(
+            Image.fromarray(normalized.astype(np.float32), mode="F").filter(
+                ImageFilter.GaussianBlur(radius=0.8)
+            ),
+            dtype=np.float32,
+        )
+        normalized = 0.72 * normalized + 0.28 * smoothed
+
+    fill = float(np.nanmedian(normalized))
+    normalized = np.nan_to_num(normalized, nan=fill, posinf=fill, neginf=fill)
+    return np.clip(normalized, 0.0, 1.0).astype(np.float32)
+
+
+def _heightmap_payload(
+    depth: np.ndarray,
+    max_size: int = 512,
+    larger_value_means: str = "closer",
+) -> dict:
+    """Create a browser-friendly, bounded terrain height field."""
     height, width = depth.shape
     scale = min(1.0, max_size / max(width, height))
     out_width = max(2, round(width * scale))
     out_height = max(2, round(height * scale))
-    finite_source = np.isfinite(depth)
-    if not finite_source.any():
-        raise ValueError("Cannot export a 3D heightmap without finite depth samples.")
-    fill = float(np.nanmedian(depth))
-    filled = np.nan_to_num(depth, nan=fill, posinf=fill, neginf=fill).astype(np.float32)
-    # Continuous downsampling avoids the terracing/aliasing produced by taking
-    # one nearest source pixel for every browser vertex.
+
+    terrain_height = _robust_relative_height(depth, larger_value_means)
     sampled = np.asarray(
-        Image.fromarray(filled, mode="F").resize(
+        Image.fromarray(terrain_height, mode="F").resize(
             (out_width, out_height), Image.Resampling.BILINEAR
         ),
         dtype=np.float32,
     )
+
+    finite_source = np.isfinite(depth)
     finite = np.asarray(
         Image.fromarray(finite_source.astype(np.uint8) * 255, mode="L").resize(
             (out_width, out_height), Image.Resampling.NEAREST
         ),
         dtype=np.uint8,
     ) > 0
+
     return {
         "width": out_width,
         "height": out_height,
         "heights": sampled.ravel().tolist(),
         "valid": finite.ravel().tolist(),
-        "elevation_min": float(sampled.min()),
-        "elevation_max": float(sampled.max()),
+        "elevation_min": 0.0,
+        "elevation_max": 1.0,
         "nodata": None,
         "units": "relative",
+        "height_semantics": "normalized_terrain_height",
+        "source_depth_semantics": "relative_inverse_depth",
     }
 
 
@@ -132,7 +169,14 @@ def save_outputs(
         Image.fromarray(rgb_image, mode="RGB").save(paths["input_preview"])
     paths["metadata"].write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
     paths["heightmap"].write_text(
-        json.dumps(_heightmap_payload(depth), separators=(",", ":")) + "\n",
+        json.dumps(
+            _heightmap_payload(
+                depth,
+                larger_value_means=metadata.get("larger_value_means", "closer"),
+            ),
+            separators=(",", ":"),
+        )
+        + "\n",
         encoding="utf-8",
     )
     return {name: path for name, path in paths.items() if path.is_file()}
