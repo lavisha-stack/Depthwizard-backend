@@ -10,3 +10,4 @@
 .geo_deps/
 .pnpm-store/
 
+.env
