@@ -62,7 +62,11 @@ export async function loadTerrainData({ heightmapUrl, textureUrl, metadataUrl, a
   const width = Math.floor(finite(raw.width, 0));
   const height = Math.floor(finite(raw.height, 0));
   if (width < 2 || height < 2 || !Array.isArray(raw.heights) || raw.heights.length !== width * height) {
-    throw new Error('Invalid heightmap JSON: expected width × height flattened samples.');
+    throw new Error(
+      `Invalid heightmap JSON: expected width × height flattened samples. ` +
+      `Got width=${width}, height=${height}, heights.length=${raw.heights?.length || 'undefined'}. ` +
+      `Verify that Person 5's API endpoint is returning the correct heightmap format.`
+    );
   }
   const nodata = raw.nodata ?? metadata.nodata;
   const values = raw.heights.map((v) => {
@@ -77,7 +81,20 @@ export async function loadTerrainData({ heightmapUrl, textureUrl, metadataUrl, a
   const min = finite(raw.elevation_min, range.min);
   const max = finite(raw.elevation_max, range.max);
   if (!Number.isFinite(min) || !Number.isFinite(max) || max < min) {
-    throw new Error('Invalid heightmap JSON: elevation range is not finite.');
+    throw new Error(
+      `Invalid heightmap JSON: elevation range is not finite. ` +
+      `Got min=${min}, max=${max}. ` +
+      `This may indicate that Person 3 failed to calibrate the depth map, ` +
+      `or the heightmap contains only NaN/null values.`
+    );
+  }
+  // CRITICAL FIX: Warn if elevation range is too small (will result in flat terrain).
+  if (max - min < 1e-6) {
+    console.warn(
+      `⚠️ WARNING: Heightmap elevation range is extremely small (${max - min}). ` +
+      `The 3D model will appear flat. ` +
+      `Check that Person 3's calibration correctly converted relative depth to metric elevation.`
+    );
   }
   const pixelResolution = metadata?.target?.pixel_resolution;
   const sourceWidth = Math.floor(finite(metadata?.target?.width, width));
@@ -93,7 +110,12 @@ export async function loadTerrainData({ heightmapUrl, textureUrl, metadataUrl, a
   const [sourcePixelX, sourcePixelY] = horizontalSampleSpacing(metadata, [rawPixelX, rawPixelY]);
   metadata.pixelSizeX = Math.abs(finite(metadata.pixelSizeX, sourcePixelX * sampleScaleX)) || 1;
   metadata.pixelSizeY = Math.abs(finite(metadata.pixelSizeY, sourcePixelY * sampleScaleY)) || metadata.pixelSizeX;
-  return { width, height, heights: new Float32Array(values), validMask, min, max, units: raw.units || metadata.elevation_units || 'm', metadata, textureUrl: resolve(textureUrl, 'texture.png') };
+  return { 
+    width, height, heights: new Float32Array(values), validMask, min, max, 
+    units: raw.units || metadata.elevation_units || 'm', 
+    metadata, 
+    textureUrl: resolve(textureUrl, 'texture.png') 
+  };
 }
 
 // Deterministic nearest-neighbour spreading prevents nodata holes without inventing spikes.
